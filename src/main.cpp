@@ -1,8 +1,8 @@
 #include <Arduino.h>
 
-#include "EventBroker.h"
-#include "TopicList.h"
-#include "SubList.h"
+#include <SubList.h>
+#include <TopicList.h>
+#include <EventBroker.h>
 
 EventBroker broker;
 
