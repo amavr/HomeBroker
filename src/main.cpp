@@ -15,6 +15,9 @@ WiFiController ctrl;
 EspNowConnector conn;
 
 uint16_t sizeEEPROM = 512;
+uint8_t gateMac[6];
+bool gateErr = false;
+uint32_t last_time;
 
 // u8 *mac_addr, u8 *data, u8 len
 void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len)
@@ -53,6 +56,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len)
             SubList *subs = broker.publish(data[0], data[1]);
             int count = subs->Count();
             // получить подписчиков
+            Serial.printf("Found %d subsribers\n", count);
             if (count > 0)
             {
                 char *ids[count];
@@ -61,10 +65,9 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len)
                 // разослать данные топика подписчикам
                 for (int i = 0; i < count; i++)
                 {
+                    Serial.printf("Send to %s\n", ids[i]);
+                    // "<topic>:<any data>"
                     conn.send(ids[i], (char *)(text + 4));
-                    // ATools::macToBytes(ids[i], mac);
-                    // // "<topic>:<any data>"
-                    // esp_now_send(mac, (uint8_t *)(text + 4), strlen(text) - 4);
                 }
                 for (int i = 0; i < count; i++)
                 {
@@ -73,24 +76,36 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len)
             }
         }
     }
+    else if(ATools::isCmd("/state", text, rest))
+    {
+        
+    }
 }
 
 void OnDataSent(uint8_t *mac, uint8_t status)
 {
+    if(memcmp(mac, gateMac, 6)== 0)
+    {
+        gateErr = status != 0;
+    }
     Serial.printf("%s\n", status == 0 ? "success" : "fail");
 }
 
-void setup()
+void OnSubscriber(const char *subMac)
 {
-    Serial.begin(115200);
-    delay(100);
+    conn.pair(subMac);
+}
 
-    EEPROM.begin(sizeEEPROM);
+void OnTopic(Topic *topic)
+{
+    topic->subscribers->forEach(OnSubscriber);
+}
 
+void initGate()
+{
     // Признак первого запуска
     bool isFirstTime = EEPROM[0] != 0x22;
     Serial.printf("isFirstTime: %d\n", isFirstTime);
-
 
     // подключение к WiFi
     ctrl.connect(isFirstTime);
@@ -103,28 +118,53 @@ void setup()
         EEPROM.commit();
     }
 
+
+    char sMac[18];
+    // регистрация в шлюзе
+    setBrokerAddr();
+    Serial.println("Registrated in Gate");
+
+    // регистрация в шлюзе
+    Serial.print("Request Gate mac address");
+    while (!getGateAddr(sMac))
+    {
+        Serial.print(".");
+        delay(500);
+    }
+    Serial.printf("done. %s\n", sMac);
+    ATools::macToBytes(sMac, gateMac);
+
+    WiFi.disconnect();
+    Serial.println("WiFi disconnected");
+}
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(100);
+
     // восстановление подписок
     broker.load();
 
-    // регистрация в шлюзе
-    setBrokerAddr();
-    char addr[0x20];
-    if (getBrokerAddr(addr))
-    {
-        Serial.println(addr);
-    }
+    EEPROM.begin(sizeEEPROM);
 
-    WiFi.disconnect();
+
+    initGate();
 
     // запуск протокола ESP-NOW
     conn.start();
     conn.setReceiveCallback(OnDataRecv);
     conn.setSendCallback(OnDataSent);
+    // сразу установить связь со всеми подписчиками
+    // иначе им не отправить сообщение
+    broker.forEachTopic(OnTopic);
+
+    last_time = millis();
 }
 
 void loop()
 {
-    // проверка сети (брокер должен работать без WiFi)
-    // ctrl.tick();
-    delay(1000);
+    // Serial.println("setBrokerAddr()");
+    // setBrokerAddr();
+    // delay(6000);
 }
