@@ -3,21 +3,13 @@
 #include <SubList.h>
 #include <TopicList.h>
 #include <EventBroker.h>
-#include <WiFiController.h>
-#include <UDPRequest.h>
 #include <ATools.h>
 #include <GParser.h>
 
 EventBroker broker;
-WiFiController ctrl;
 
 #include "EspNowConnector.h"
 EspNowConnector conn;
-
-uint16_t sizeEEPROM = 512;
-uint8_t gateMac[6];
-bool gateErr = false;
-uint32_t last_time;
 
 // u8 *mac_addr, u8 *data, u8 len
 void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len)
@@ -84,10 +76,6 @@ void OnDataRecv(uint8_t *mac, uint8_t *data, uint8_t len)
 
 void OnDataSent(uint8_t *mac, uint8_t status)
 {
-    if(memcmp(mac, gateMac, 6)== 0)
-    {
-        gateErr = status != 0;
-    }
     Serial.printf("%s\n", status == 0 ? "success" : "fail");
 }
 
@@ -101,43 +89,6 @@ void OnTopic(Topic *topic)
     topic->subscribers->forEach(OnSubscriber);
 }
 
-void initGate()
-{
-    // Признак первого запуска
-    bool isFirstTime = EEPROM[0] != 0x22;
-    Serial.printf("isFirstTime: %d\n", isFirstTime);
-
-    // подключение к WiFi
-    ctrl.connect(isFirstTime);
-
-    // после инициализации подключения и старта информера
-    // EEPROM проинициализирована, поэтому сброс флага первого запуска
-    if (isFirstTime)
-    {
-        EEPROM[0] = 0x22;
-        EEPROM.commit();
-    }
-
-
-    char sMac[18];
-    // регистрация в шлюзе
-    setBrokerAddr();
-    Serial.println("Registrated in Gate");
-
-    // регистрация в шлюзе
-    Serial.print("Request Gate mac address");
-    while (!getGateAddr(sMac))
-    {
-        Serial.print(".");
-        delay(500);
-    }
-    Serial.printf("done. %s\n", sMac);
-    ATools::macToBytes(sMac, gateMac);
-
-    WiFi.disconnect();
-    Serial.println("WiFi disconnected");
-}
-
 void setup()
 {
     Serial.begin(115200);
@@ -146,11 +97,6 @@ void setup()
     // восстановление подписок
     broker.load();
 
-    EEPROM.begin(sizeEEPROM);
-
-
-    initGate();
-
     // запуск протокола ESP-NOW
     conn.start();
     conn.setReceiveCallback(OnDataRecv);
@@ -158,13 +104,8 @@ void setup()
     // сразу установить связь со всеми подписчиками
     // иначе им не отправить сообщение
     broker.forEachTopic(OnTopic);
-
-    last_time = millis();
 }
 
 void loop()
 {
-    // Serial.println("setBrokerAddr()");
-    // setBrokerAddr();
-    // delay(6000);
 }
